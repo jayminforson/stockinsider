@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from collections import defaultdict, deque
-from math import sin
+from math import isfinite, sin
 import os
 import re
 import secrets
@@ -25,6 +25,8 @@ app = FastAPI(title="StockInsider API", version="0.1.0")
 allowed_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if origin.strip()]
 allowed_hosts = [host.strip() for host in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if host.strip()]
 api_key = os.getenv("STOCKINSIDER_API_KEY")
+mansa_api_key = os.getenv("MANSA_API_KEY")
+mansa_base_url = os.getenv("MANSA_API_URL", "https://api.mansamarkets.com/api/v1")
 if os.getenv("APP_ENV", "development").lower() == "production" and not api_key:
     raise RuntimeError("STOCKINSIDER_API_KEY must be configured in production")
 
@@ -40,10 +42,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: Any, limit: int = 60, window_seconds: int = 60) -> None:
+    def __init__(self, app: Any, limit: int | None = None, window_seconds: int | None = None) -> None:
         super().__init__(app)
-        self.limit = limit
-        self.window_seconds = window_seconds
+        self.limit = limit or int(os.getenv("API_RATE_LIMIT", "300"))
+        self.window_seconds = window_seconds or int(os.getenv("API_RATE_WINDOW_SECONDS", "60"))
         self.requests: defaultdict[str, deque[float]] = defaultdict(deque)
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
@@ -56,6 +58,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if len(timestamps) >= self.limit:
                 return Response("Rate limit exceeded", status_code=429, headers={"Retry-After": "60"})
             timestamps.append(now)
+            if len(self.requests) > 10_000:
+                expired_clients = [
+                    ip for ip, client_timestamps in self.requests.items()
+                    if not client_timestamps or now - client_timestamps[-1] > self.window_seconds
+                ]
+                for ip in expired_clients:
+                    del self.requests[ip]
         return await call_next(request)
 
 
@@ -91,13 +100,14 @@ def demo_series(symbol: str) -> list[dict[str, Any]]:
     return points
 
 
-async def yahoo_series(symbol: str) -> list[dict[str, Any]]:
+async def yahoo_market(symbol: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
     params = {"range": "3mo", "interval": "1d", "includePrePost": "false"}
     async with httpx.AsyncClient(timeout=8) as client:
         response = await client.get(url, params=params, headers={"User-Agent": "StockInsider/0.1"})
         response.raise_for_status()
         payload = response.json()["chart"]["result"][0]
+        metadata = payload.get("meta", {})
         timestamps = payload.get("timestamp", [])
         quote = payload["indicators"]["quote"][0]
         opens = quote.get("open", [])
@@ -105,11 +115,93 @@ async def yahoo_series(symbol: str) -> list[dict[str, Any]]:
         lows = quote.get("low", [])
         closes = quote.get("close", [])
         volumes = quote.get("volume", [])
-        return [
+        series = [
             {"label": datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%b %d"), "value": round(close, 2), "open": round(open_price, 2), "high": round(high, 2), "low": round(low, 2), "volume": volume or 0}
             for timestamp, open_price, high, low, close, volume in zip(timestamps, opens, highs, lows, closes, volumes)
-            if close is not None and open_price is not None and high is not None and low is not None
+            if all(
+                value is not None and isfinite(float(value))
+                for value in (timestamp, open_price, high, low, close)
+            )
         ][-90:]
+        return series, {
+            "currentPrice": metadata.get("regularMarketPrice"),
+            "previousClose": metadata.get("previousClose", metadata.get("chartPreviousClose")),
+            "marketState": metadata.get("marketState", "UNKNOWN"),
+            "currency": metadata.get("currency", "USD"),
+            "quoteTime": metadata.get("regularMarketTime"),
+        }
+
+
+def mansa_symbol(symbol: str) -> tuple[str, str] | None:
+    exchange_by_suffix = {
+        ".GH": "GSE",
+        ".LG": "NGX",
+        ".JO": "JSE",
+        ".NR": "NSE",
+    }
+    for suffix, exchange in exchange_by_suffix.items():
+        if symbol.endswith(suffix):
+            return exchange, symbol.removesuffix(suffix)
+    return None
+
+
+async def mansa_market(symbol: str) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+    if not mansa_api_key:
+        return None
+    resolved = mansa_symbol(symbol)
+    if not resolved:
+        return None
+    exchange, ticker = resolved
+    headers = {"Authorization": f"Bearer {mansa_api_key}", "Accept": "application/json"}
+    async with httpx.AsyncClient(timeout=8) as client:
+        quote_response = await client.get(
+            f"{mansa_base_url}/markets/exchanges/{exchange}/stocks/{ticker}",
+            headers=headers,
+        )
+        quote_response.raise_for_status()
+        quote_payload = quote_response.json()
+        quote = quote_payload.get("data", quote_payload)
+        history_response = await client.get(
+            f"{mansa_base_url}/markets/exchanges/{exchange}/stocks/{ticker}/history",
+            params={"range": "3M", "order": "asc", "limit": 90},
+            headers=headers,
+        )
+        history_response.raise_for_status()
+        history_payload = history_response.json()
+        history = history_payload.get("data", history_payload)
+        if isinstance(history, dict):
+            history = history.get("prices", history.get("history", []))
+        series = []
+        for point in history if isinstance(history, list) else []:
+            close = point.get("close", point.get("price"))
+            timestamp = point.get("timestamp", point.get("date"))
+            if close is None or timestamp is None:
+                continue
+            try:
+                numeric_close = float(close)
+                if isinstance(timestamp, (int, float)):
+                    label = datetime.fromtimestamp(timestamp, tz=timezone.utc).strftime("%b %d")
+                else:
+                    label = str(timestamp)[:10]
+                series.append({
+                    "label": label,
+                    "value": round(numeric_close, 2),
+                    "open": round(float(point.get("open", close)), 2),
+                    "high": round(float(point.get("high", close)), 2),
+                    "low": round(float(point.get("low", close)), 2),
+                    "volume": point.get("volume", 0) or 0,
+                })
+            except (TypeError, ValueError):
+                continue
+        current = quote.get("price", quote.get("currentPrice", quote.get("lastPrice")))
+        previous = quote.get("previousClose", quote.get("previous_close"))
+        return series[-90:], {
+            "currentPrice": current,
+            "previousClose": previous,
+            "marketState": quote.get("marketState", quote.get("market_state", "UNKNOWN")),
+            "currency": quote.get("currency", "GHS"),
+            "quoteTime": quote.get("timestamp", quote.get("updatedAt")),
+        }
 
 
 def baseline_forecast(values: list[float], horizon: int = 30) -> dict[str, Any]:
@@ -229,13 +321,19 @@ def health() -> dict[str, str]:
 
 
 @app.get("/api/market")
-async def market(symbol: str = Query("NVDA", min_length=1, max_length=8)) -> dict[str, Any]:
+async def market(symbol: str = Query("NVDA", min_length=1, max_length=16)) -> dict[str, Any]:
     normalized = symbol.upper().strip()
-    if not re.fullmatch(r"[A-Z0-9.=-]{1,8}", normalized):
+    if not re.fullmatch(r"[A-Z0-9.=-]{1,16}", normalized):
         raise HTTPException(status_code=400, detail="Invalid ticker symbol")
+    quote: dict[str, Any] = {}
     try:
-        series = await yahoo_series(normalized)
-        source = "live"
+        mansa_result = await mansa_market(normalized)
+        if mansa_result:
+            series, quote = mansa_result
+            source = "mansa"
+        else:
+            series, quote = await yahoo_market(normalized)
+            source = "live" if quote.get("currentPrice") is not None else "historical"
     except (httpx.HTTPError, KeyError, IndexError, TypeError, ValueError):
         series = demo_series(normalized)
         source = "demo"
@@ -243,8 +341,23 @@ async def market(symbol: str = Query("NVDA", min_length=1, max_length=8)) -> dic
     if len(series) < 2:
         raise HTTPException(status_code=502, detail="Market data did not contain enough observations")
 
-    current = series[-1]["value"]
-    previous = series[-2]["value"]
+    current_quote = quote.get("currentPrice")
+    previous_quote = quote.get("previousClose")
+    current = float(current_quote) if current_quote is not None and isfinite(float(current_quote)) else series[-1]["value"]
+    previous = float(previous_quote) if previous_quote is not None and isfinite(float(previous_quote)) else series[-2]["value"]
+    if source in {"live", "mansa"} and abs(current - series[-1]["value"]) > 0.005:
+        last_close = series[-1]["value"]
+        series = [
+            *series,
+            {
+                "label": "Now",
+                "value": round(current, 2),
+                "open": round(last_close, 2),
+                "high": round(max(last_close, current), 2),
+                "low": round(min(last_close, current), 2),
+                "volume": series[-1].get("volume", 0),
+            },
+        ][-90:]
     change = current - previous
     change_percent = (change / previous) * 100 if previous else 0
     forecast = xgboost_forecast([point["value"] for point in series])
@@ -256,7 +369,13 @@ async def market(symbol: str = Query("NVDA", min_length=1, max_length=8)) -> dic
         "change": round(change, 2),
         "changePercent": round(change_percent, 2),
         "source": source,
-        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "updatedAt": (
+            datetime.fromtimestamp(quote["quoteTime"], tz=timezone.utc).isoformat()
+            if isinstance(quote.get("quoteTime"), (int, float))
+            else str(quote["quoteTime"]) if quote.get("quoteTime") else datetime.now(timezone.utc).isoformat()
+        ),
+        "marketState": quote.get("marketState", "UNKNOWN"),
+        "currency": quote.get("currency", "USD"),
         "series": series,
         "explanation": explain_signal(values),
         "backtest": backtest(values),

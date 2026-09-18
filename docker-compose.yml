@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      STOCKINSIDER_API_KEY: ${STOCKINSIDER_API_KEY:?Set STOCKINSIDER_API_KEY before starting the stack}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      BACKEND_URL: http://backend:8000
+      STOCKINSIDER_API_KEY: ${STOCKINSIDER_API_KEY:?Set STOCKINSIDER_API_KEY before starting the stack}
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    ports:
+      - "${PORT:-3000}:3000"
