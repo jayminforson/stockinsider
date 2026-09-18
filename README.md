@@ -46,6 +46,8 @@ The frontend is available on port `3000` and the backend health check is availab
 
 For African exchange coverage, configure an authorized Mansa Markets API key with `MANSA_API_KEY`. Mansa is preferred for exchange-qualified African symbols such as `GCB.GH` and `MTNGH.GH`; Yahoo Finance remains the fallback for other symbols. Do not commit API keys.
 
+The Next.js configuration uses standalone output for Docker builds, but automatically disables it on Vercel so Vercel can apply its native Next.js output tracing.
+
 The backend request limiter defaults to `API_RATE_LIMIT=300` requests per `API_RATE_WINDOW_SECONDS=60` per client. Adjust these values for the capacity of the deployment; the dashboard refreshes visible quotes every five minutes to avoid exhausting the limit during normal use.
 
 ## Security

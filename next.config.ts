@@ -3,7 +3,8 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  output: "standalone",
+  // Vercel performs its own output tracing; standalone is retained for Docker.
+  output: process.env.VERCEL ? undefined : "standalone",
   turbopack: {
     root: process.cwd(),
   },
