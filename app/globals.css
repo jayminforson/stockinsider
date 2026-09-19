@@ -559,3 +559,16 @@ body { background: var(--bg); }
 
 /* Clamp horizontally-scrolling zones so nothing pushes the page wide */
 .ticker-item, .watch-name, .mover-name, .quote-line, .hero-stats { min-width: 0; }
+
+/* ------------------------------------------------------------------ */
+/* Layout rescue: late desktop passes clobber responsive grid/layout */
+/* These override the unconditional editoral/final-pass declarations  */
+/* ------------------------------------------------------------------ */
+@media (max-width: 960px) {
+	.content-grid { grid-template-columns: 1fr; gap: 40px; padding-top: 40px; }
+	.side-column { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); padding-top: 26px; }
+}
+@media (max-width: 620px) {
+	.content-grid { padding-top: 28px; }
+	.content-grid > .main-column { padding: 0; }
+}
