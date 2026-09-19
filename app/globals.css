@@ -446,3 +446,116 @@ body { background: var(--bg); }
 .suggestion-item:hover { background: var(--panel-2); border-color: var(--line); }
 @media (max-width: 620px) { .insight-grid { grid-template-columns: 1fr; }.chart-skeleton { height: 245px; } }
 @media (max-width: 800px) { .beginner-guide { grid-template-columns: 1fr; gap: 18px; }.guide-steps { grid-template-columns: 1fr; }.guide-steps div { grid-template-columns: auto 1fr; align-items: center; }.guide-steps span { grid-column: 2; } }
+
+/* ------------------------------------------------------------------ */
+/* Mobile refinement pass: readable type, safe touch targets, no zoom  */
+/* ------------------------------------------------------------------ */
+
+/* Fluid base typography so everything scales with the device, not fixed px */
+:root { font-size: 16px; }
+@media (min-width: 700px) { :root { font-size: 17px; } }
+@media (min-width: 1100px) { :root { font-size: 18px; } }
+
+/* Safe-area padding for notched phones (iPhone notch / home bar) */
+.app-shell { padding-left: max(17px, env(safe-area-inset-left)); padding-right: max(17px, env(safe-area-inset-right)); }
+
+/* Tap targets: minimum 44x44 for anything interactive */
+.suggestion-item { min-height: 44px; }
+.watch-row, .mover-row { min-height: 52px; }
+
+@media (max-width: 620px) {
+	/* Prevent iOS Safari auto-zoom: inputs need >= 16px font */
+	.search-box input { font-size: 16px; }
+	.search-box { height: 48px; gap: 10px; }
+
+	/* Lift the dense 8-10px micro-type to readable sizes */
+	.ticker-strip { font-size: 11px; padding-left: 17px; padding-right: 17px; margin-left: -17px; margin-right: -17px; gap: 18px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+	.ticker-strip::-webkit-scrollbar { display: none; }
+	.ticker-pulse { font-size: 10px; }
+	.ticker-item strong { font-size: 12px; }
+	.brand-caption { font-size: 9px; }
+	.eyebrow, .section-kicker { font-size: 10px; }
+	.hero-copy { font-size: 15px; }
+	.hero-stats span { font-size: 10px; }
+	.hero-stats strong { font-size: 16px; }
+	.guide-heading p { font-size: 11px; }
+	.guide-steps span { max-width: none; font-size: 11px; }
+	.guide-steps strong { font-size: 13px; }
+	.search-suggestions { max-height: 320px; overflow-y: auto; }
+	.suggestion-item { font-size: 13px; padding: 12px 10px; gap: 10px; }
+	.suggestion-name { white-space: normal; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+	.button-primary { height: 50px; font-size: 14px; }
+	.notice { font-size: 12px; gap: 10px; }
+	.data-status { font-size: 11px; }
+	.section-heading h2, .forecast-header h2, .side-header h2 { font-size: 22px; }
+	.company-name { font-size: 13px; }
+	.source-tag { font-size: 10px; }
+	.quote-line { flex-wrap: wrap; row-gap: 4px; }
+	.quote-line strong { font-size: clamp(30px, 9vw, 36px); }
+	.quote-line span { font-size: 12px; }
+	.chart-title small, .chart-meta, .range-tabs button { font-size: 11px; }
+	.chart-type-tabs button { font-size: 11px; min-height: 38px; padding: 6px 10px; }
+	.range-tabs button { min-height: 40px; min-width: 42px; }
+	.chart-wrap { height: 230px; }
+	.chart-wrap svg { height: 200px; }
+	.chart-axis { font-size: 10px; }
+	.chart-label { font-size: 11px; }
+	.forecast-panel { padding: 20px 16px; }
+	.forecast-target > span:first-child { font-size: 11px; }
+	.forecast-target > strong { font-size: clamp(30px, 9vw, 38px); }
+	.forecast-gain { font-size: 12px; }
+	.confidence { font-size: 11px; }
+	.range-labels { font-size: 11px; line-height: 1.6; }
+	.range-labels strong { font-size: 12px; }
+	.range-foot { font-size: 10px; }
+	.model-note { font-size: 11px; line-height: 1.6; }
+	.model-details, .inline-status { font-size: 11px; }
+	.insight-card p { font-size: 11px; min-height: 0; line-height: 1.6; }
+	.insight-card-heading { font-size: 12px; }
+	.factor-row { gap: 10px; }
+	.factor-row strong { font-size: 12px; }
+	.factor-row span { font-size: 10px; }
+	.factor-row b { font-size: 12px; }
+	.accuracy-number { font-size: clamp(26px, 8vw, 34px); }
+	.backtest-meta { font-size: 10px; }
+	.watch-name strong, .mover-name strong { font-size: 13px; }
+	.watch-name span, .mover-name span { font-size: 11px; }
+	.watch-quote strong { font-size: 12px; }
+	.watch-quote span, .mover-row > span:last-child { font-size: 11px; }
+	.watch-count { font-size: 11px; }
+	.add-watch { font-size: 12px; min-height: 46px; }
+	.text-button { font-size: 11px; }
+	.mover-rank { font-size: 11px; }
+	.top-popover { right: 17px; left: 17px; min-width: 0; }
+	.account-popover { left: auto; }
+	.toast { left: 17px; right: 17px; bottom: calc(17px + env(safe-area-inset-bottom)); max-width: none; font-size: 11px; }
+	footer { font-size: 10px; gap: 10px; padding: 16px 0 calc(16px + env(safe-area-inset-bottom)); }
+}
+
+/* Very small phones (< 360px): tighten horizontal chrome */
+@media (max-width: 360px) {
+	.app-shell { padding-left: 13px; padding-right: 13px; }
+	.hero-row h1 { font-size: 34px; letter-spacing: -2px; }
+	.hero-stats { flex-wrap: wrap; }
+	.chart-actions { align-items: stretch; }
+	.chart-controls { justify-content: flex-start; }
+	.range-tabs { justify-content: flex-start; }
+}
+
+/* Landscape phones: reclaim vertical space */
+@media (max-height: 480px) and (orientation: landscape) {
+	.topbar { height: 58px; }
+	.content-grid { padding-top: 26px; }
+	.hero-row { margin: 14px 0 20px; }
+	.chart-wrap { height: 190px; }
+	.chart-wrap svg { height: 165px; }
+}
+
+/* Hover-capable pointer fix: keep hover lifts off touch devices */
+@media (hover: none) {
+	.button-primary:hover, .icon-button:hover, .watch-button:hover, .theme-toggle:hover, .mobile-menu:hover, .add-watch:hover, .text-button:hover, .model-note button:hover { transform: none; }
+	.watch-row:hover, .mover-row:hover { transform: none; }
+}
+
+/* Clamp horizontally-scrolling zones so nothing pushes the page wide */
+.ticker-item, .watch-name, .mover-name, .quote-line, .hero-stats { min-width: 0; }
